@@ -130,14 +130,14 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.markdown('<h1 class="main-header">📄 Estrazione dati da Documenti con Gemini AI</h1>', unsafe_allow_html=True)
-st.write("Carica uno o più documenti (PDF, PNG, JPG) di autocertificazione per estrarre informazioni strutturate utilizzando la capacità multimodale di Gemini.")
+st.markdown('<h1 class="main-header">📄 Estrazione dati da Documenti</h1>', unsafe_allow_html=True)
+st.write("Carica uno o più documenti (PDF, PNG, JPG) di autocertificazione per estrarre informazioni strutturate.")
 
 # --- API Key Input in Sidebar ---
 with st.sidebar:
     st.title("Configurazione API")
     user_api_key = st.text_input(
-        "Chiave API Gemini:",
+        "Chiave API:",
         type="password",
         help="La chiave API è necessaria per l'autenticazione. Lasciare vuoto se si esegue in un ambiente Canvas (che la fornisce automaticamente)."
     )
@@ -159,7 +159,7 @@ if uploaded_files:
     
     all_extracted_data = []
     
-    with st.spinner(f"Analisi di {len(uploaded_files)} PDF in corso con Gemini AI..."):
+    with st.spinner(f"Analisi di {len(uploaded_files)} PDF in corso con AI..."):
         
         # Itera su ciascun file caricato
         for i, uploaded_file in enumerate(uploaded_files):
@@ -236,4 +236,4 @@ if uploaded_files:
         st.warning("Nessun dato è stato estratto con successo.")
 
 
-st.info("Nota: Questa app utilizza il modello Gemini 2.5 Flash per l'analisi multimodale di documenti (PDF e immagini).")
+st.info("Nota: Questa app utilizza AI per l'analisi multimodale di documenti (PDF e immagini).")
