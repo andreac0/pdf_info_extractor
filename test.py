@@ -16,30 +16,32 @@ EXTRACTION_SCHEMA = {
     "properties": {
         "nome": {"type": "STRING", "description": "Nome dell'individuo. Se non trovato, usare una stringa vuota."},
         "cognome": {"type": "STRING", "description": "Cognome dell'individuo. Se non trovato, usare una stringa vuota."},
-        "dataNascita": {"type": "STRING", "description": "Data di nascita nel formato GG/MM/AAAA. Se non trovata, usare una stringa vuota."},
-        "nomeConiuge": {"type": "STRING", "description": "Nome o Cognome del coniuge/partner. Se non trovato, usare una stringa vuota."},
+        # "dataNascita": {"type": "STRING", "description": "Data di nascita nel formato GG/MM/AAAA. Se non trovata, usare una stringa vuota."},
+        # "nomeConiuge": {"type": "STRING", "description": "Nome o Cognome del coniuge/partner. Se non trovato, usare una stringa vuota."},
         "invaliditaConiuge": {"type": "BOOLEAN", "description": "True se viene esplicitamente dichiarata l'invalidità o lo stato di invalido del coniuge (e.g., 'invalido permanente'), altrimenti False."},
-        "numeroFigliCarico": {"type": "INTEGER", "description": "Il numero totale di figli a carico dichiarati. Se non specificato o trovato, usare 0."}
+        "numeroFigliCarico": {"type": "INTEGER", "description": "Il numero totale di figli a carico dichiarati. Se non specificato o trovato, usare 0."},
+        "invaliditaFigli": {"type": "BOOLEAN", "description": "True se viene dichiarato che uno o più figli sono invalidi."},
+        "infoFigliInvalidi": {"type": "STRING", "description": "Nomi e dettagli dei figli dichiarati invalidi. Se nessuno, stringa vuota."}
     },
-    "propertyOrdering": ["nome", "cognome", "dataNascita", "nomeConiuge", "invaliditaConiuge", "numeroFigliCarico"]
+    "propertyOrdering": ["nome", "cognome",  "invaliditaConiuge", "numeroFigliCarico", "invaliditaFigli", "infoFigliInvalidi"]
 }
 
 # --- Prompts ---
-SYSTEM_PROMPT = "Sei un sistema di estrazione dati specializzato in documenti di autocertificazione. Analizza il documento PDF fornito e compila scrupolosamente tutti i campi richiesti nel formato JSON specificato."
-USER_QUERY = "Estrai le seguenti informazioni chiave sul richiedente e il suo nucleo familiare, indipendentemente dal fatto che provengano da testo normale, campi modulo o immagini scansionate:"
+SYSTEM_PROMPT = "Sei un sistema di estrazione dati specializzato in documenti di autocertificazione. Analizza il documento fornito (PDF o immagine) e compila scrupolosamente tutti i campi richiesti nel formato JSON specificato."
+USER_QUERY = "Estrai le seguenti informazioni chiave sul richiedente e il suo nucleo familiare, indipendentemente dal fatto che provengano da testo normale, campi modulo o immagini:"
 
 # --- Utility Functions ---
 
-def convert_pdf_to_base64(pdf_file):
+def convert_file_to_base64(file_obj):
     """Reads the uploaded Streamlit file and returns its base64 encoded string."""
-    pdf_file.seek(0)
-    pdf_bytes = pdf_file.read()
-    return base64.b64encode(pdf_bytes).decode('utf-8')
+    file_obj.seek(0)
+    file_bytes = file_obj.read()
+    return base64.b64encode(file_bytes).decode('utf-8')
 
-def extract_pdf_data_with_gemini(base64_pdf_data, api_key):
+def extract_data_with_gemini(base64_data, mime_type, api_key):
     """
     Simulates an SDK-style call to the Gemini API using requests for structured 
-    multimodal (PDF) extraction. Includes exponential backoff for resilience.
+    multimodal extraction. Includes exponential backoff for resilience.
     
     The API key is now passed as an argument.
     """
@@ -56,8 +58,8 @@ def extract_pdf_data_with_gemini(base64_pdf_data, api_key):
                     {"text": USER_QUERY},
                     {
                         "inlineData": {
-                            "mimeType": "application/pdf",
-                            "data": base64_pdf_data
+                            "mimeType": mime_type,
+                            "data": base64_data
                         }
                     }
                 ]
@@ -104,7 +106,7 @@ def extract_pdf_data_with_gemini(base64_pdf_data, api_key):
     return None
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="PDF Data Extractor", layout="wide")
+st.set_page_config(page_title="Document Data Extractor", layout="wide")
 
 st.markdown(
     """
@@ -128,8 +130,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.markdown('<h1 class="main-header">📄 Estrazione dati da PDF con Gemini AI</h1>', unsafe_allow_html=True)
-st.write("Carica uno o più documenti PDF (autocertificazione) per estrarre informazioni strutturate utilizzando la capacità multimodale di Gemini.")
+st.markdown('<h1 class="main-header">📄 Estrazione dati da Documenti con Gemini AI</h1>', unsafe_allow_html=True)
+st.write("Carica uno o più documenti (PDF, PNG, JPG) di autocertificazione per estrarre informazioni strutturate utilizzando la capacità multimodale di Gemini.")
 
 # --- API Key Input in Sidebar ---
 with st.sidebar:
@@ -143,10 +145,10 @@ with st.sidebar:
 
 # --- File Uploader ---
 uploaded_files = st.file_uploader(
-    "Carica uno o più PDF di autocertificazione", 
-    type=["pdf"], 
+    "Carica uno o più file (PDF o Immagini)", 
+    type=["pdf", "png", "jpg", "jpeg"], 
     accept_multiple_files=True, 
-    key="pdf_uploader"
+    key="file_uploader"
 )
 
 if uploaded_files:
@@ -165,10 +167,23 @@ if uploaded_files:
             
             try:
                 # 1. Convert file to Base64
-                base64_data = convert_pdf_to_base64(uploaded_file)
+                base64_data = convert_file_to_base64(uploaded_file)
                 
-                # 2. Call the extraction function, passing the API key
-                extracted_info = extract_pdf_data_with_gemini(base64_data, final_api_key)
+                # Determine mime type
+                mime_type = uploaded_file.type
+                # Fallback if Streamlit doesn't guess it (e.g. sometimes it might be None related, though usually reliable)
+                if not mime_type:
+                    if uploaded_file.name.lower().endswith(".pdf"):
+                        mime_type = "application/pdf"
+                    elif uploaded_file.name.lower().endswith((".png")):
+                        mime_type = "image/png"
+                    elif uploaded_file.name.lower().endswith((".jpg", ".jpeg")):
+                        mime_type = "image/jpeg"
+                    else:
+                        mime_type = "application/octet-stream" # Default
+
+                # 2. Call the extraction function, passing the API key and mime type
+                extracted_info = extract_data_with_gemini(base64_data, mime_type, final_api_key)
 
                 if extracted_info:
                     # 3. Aggiungi il nome del file ai dati estratti
@@ -189,12 +204,19 @@ if uploaded_files:
         df = pd.DataFrame(all_extracted_data)
         
         # Riordina e rinomina le colonne per la visualizzazione
-        display_columns = ['Nome File', 'nome', 'cognome', 'dataNascita', 'nomeConiuge', 'invaliditaConiuge', 'numeroFigliCarico']
+        # Nota: Rimosse colonne commentate nello schema per evitare errori
+        display_columns = ['Nome File', 'nome', 'cognome', 'invaliditaConiuge', 'numeroFigliCarico', 'invaliditaFigli', 'infoFigliInvalidi']
+        
+        # Gestione colonne mancanti se il modello non le restituisce (sicurezza)
+        for col in display_columns:
+            if col not in df.columns:
+                df[col] = None # o valore default appropriato
+                
         df = df[display_columns]
 
         df.columns = [
-            "Nome File", "Nome", "Cognome", "Data di Nascita", 
-            "Nome/Cognome Coniuge", "Invalidità Coniuge", "N. Figli a Carico"
+            "Nome File", "Nome", "Cognome", 
+            "Invalidità Coniuge", "N. Figli a Carico", "Invalidità Figli", "Info Figli Invalidi"
         ]
         
         st.table(df)
@@ -214,4 +236,4 @@ if uploaded_files:
         st.warning("Nessun dato è stato estratto con successo.")
 
 
-st.info("Nota: Questa app utilizza il modello Gemini 2.5 Flash per l'analisi multimodale del documento PDF.")
+st.info("Nota: Questa app utilizza il modello Gemini 2.5 Flash per l'analisi multimodale di documenti (PDF e immagini).")
