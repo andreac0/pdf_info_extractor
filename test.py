@@ -19,7 +19,6 @@ EXTRACTION_SCHEMA = {
         "statoCivile": {"type": "STRING", "description": "Stato civile: 'coniugato', 'celibe', 'nubile', 'separato', 'divorziato', 'vedovo', o stringa vuota se non trovato."},
         
         # Familiari / Coniuge
-        "coniugeACarico": {"type": "BOOLEAN", "description": "True se il coniuge/partner è esplicitamente dichiarato come fiscalmente a carico, altrimenti False."},
         "invaliditaConiuge": {"type": "BOOLEAN", "description": "True se viene esplicitamente dichiarata l'invalidità o lo stato di invalido del coniuge (e.g., 'invalido permanente'), altrimenti False."},
         
         # Figli
@@ -28,9 +27,10 @@ EXTRACTION_SCHEMA = {
         
         # Altri familiari
         "numeroAltriFamiliariACarico": {"type": "INTEGER", "description": "Il numero totale di altri familiari a carico (diversi da coniuge e figli). Se non specificato o trovato, usare 0."},
-        "infoFigliInvalidi": {"type": "STRING", "description": "Nomi e dettagli dei figli dichiarati invalidi. Se nessuno, stringa vuota."}
+        "coniugeACarico": {"type": "BOOLEAN", "description": "True se tra gli altri familiari a carico c'è il coniuge/marito/moglie, altrimenti False."},
+
     },
-    "propertyOrdering": ["nome", "cognome", "statoCivile", "coniugeACarico", "invaliditaConiuge", "numeroFigliCarico", "numeroFigliInvalidi", "numeroAltriFamiliariACarico", "infoFigliInvalidi"]
+    "propertyOrdering": ["nome", "cognome", "statoCivile", "coniugeACarico", "invaliditaConiuge", "numeroFigliCarico", "numeroFigliInvalidi", "numeroAltriFamiliariACarico"]
 }
 
 # --- Prompts ---
@@ -213,7 +213,7 @@ if uploaded_files:
             'Nome File', 'nome', 'cognome', 'statoCivile', 
             'coniugeACarico', 'invaliditaConiuge', 
             'numeroFigliCarico', 'numeroFigliInvalidi', 
-            'numeroAltriFamiliariACarico', 'infoFigliInvalidi'
+            'numeroAltriFamiliariACarico'
         ]
         
         # Gestione colonne mancanti (per sicurezza)
@@ -235,14 +235,27 @@ if uploaded_files:
         # Download CSV
         csv_buffer = io.StringIO()
         df.to_csv(csv_buffer, index=False, sep=';', encoding='utf-8')
-        
+
         st.download_button(
             label="⬇️ Scarica CSV Combinato",
             data=csv_buffer.getvalue(),
             file_name="dati_estratti_gemini_combinati.csv",
-            mime="text/csv",
-            help="Scarica i dati estratti da tutti i PDF in formato CSV (separatore ';')"
+            mime="text/csv"
         )
+
+        # --- NEW: Download Excel ---
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+            df.to_excel(writer, index=False, sheet_name="Dati Estratti")
+        excel_buffer.seek(0)
+
+        st.download_button(
+            label="⬇️ Scarica Excel (XLSX)",
+            data=excel_buffer,
+            file_name="dati_estratti_gemini.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
     else:
         st.warning("Nessun dato è stato estratto con successo.")
 
