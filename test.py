@@ -27,7 +27,7 @@ EXTRACTION_SCHEMA = {
         
         # Altri familiari
         "numeroAltriFamiliariACarico": {"type": "INTEGER", "description": "Il numero totale di altri familiari a carico (diversi da coniuge e figli). Se non specificato o trovato, usare 0."},
-        "coniugeACarico": {"type": "BOOLEAN", "description": "True se tra gli altri familiari a carico c'è il coniuge/marito/moglie, altrimenti False."},
+        "coniugeACarico": {"type": "BOOLEAN", "description": "True se tra gli 'altri familiari a carico' c'è il coniuge/marito/moglie, altrimenti False."},
 
     },
     "propertyOrdering": ["nome", "cognome", "statoCivile", "coniugeACarico", "invaliditaConiuge", "numeroFigliCarico", "numeroFigliInvalidi", "numeroAltriFamiliariACarico"]
@@ -243,18 +243,18 @@ if uploaded_files:
             mime="text/csv"
         )
 
-        # --- NEW: Download Excel ---
-        excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
-            df.to_excel(writer, index=False, sheet_name="Dati Estratti")
-        excel_buffer.seek(0)
+        # # --- NEW: Download Excel ---
+        # excel_buffer = io.BytesIO()
+        # with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
+        #     df.to_excel(writer, index=False, sheet_name="Dati Estratti")
+        # excel_buffer.seek(0)
 
-        st.download_button(
-            label="⬇️ Scarica Excel (XLSX)",
-            data=excel_buffer,
-            file_name="dati_estratti_gemini.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        # st.download_button(
+        #     label="⬇️ Scarica Excel (XLSX)",
+        #     data=excel_buffer,
+        #     file_name="dati_estratti_gemini.xlsx",
+        #     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        # )
 
     else:
         st.warning("Nessun dato è stato estratto con successo.")
