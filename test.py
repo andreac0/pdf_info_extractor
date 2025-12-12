@@ -5,12 +5,11 @@ import requests
 import time
 import pandas as pd
 import io
+import xlsxwriter
 
-# --- Configuration (Base Definitions) ---
-# Utilizziamo il nome del modello stabile 'gemini-2.5-flash'.
+# --- Configuration ---
 MODEL_NAME = "gemini-2.5-flash"
 
-# Define the JSON schema for structured output (MANDATORY for reliable data extraction)
 EXTRACTION_SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -30,29 +29,29 @@ EXTRACTION_SCHEMA = {
         "coniugeACarico": {"type": "BOOLEAN", "description": "True se tra gli 'altri familiari a carico' c'è il coniuge/marito/moglie, altrimenti False."},
 
     },
-    "propertyOrdering": ["nome", "cognome", "statoCivile", "coniugeACarico", "invaliditaConiuge", "numeroFigliCarico", "numeroFigliInvalidi", "numeroAltriFamiliariACarico"]
+    "propertyOrdering": [
+        "nome", "cognome", "statoCivile",
+        "coniugeACarico", "invaliditaConiuge",
+        "numeroFigliCarico", "numeroFigliInvalidi",
+        "numeroAltriFamiliariACarico"
+    ]
 }
 
-# --- Prompts ---
-SYSTEM_PROMPT = "Sei un sistema di estrazione dati specializzato in documenti di autocertificazione. Analizza il documento fornito (PDF o immagine) e compila scrupolosamente tutti i campi richiesti nel formato JSON specificato. Fai la tua migliore ipotesi per lo stato civile in base al contesto o lascia vuoto se non chiaro."
-USER_QUERY = "Estrai le seguenti informazioni chiave sul richiedente e il suo nucleo familiare, indipendentemente dal fatto che provengano da testo normale, campi modulo o immagini:"
+SYSTEM_PROMPT = "Sei un sistema di estrazione dati specializzato in documenti di autocertificazione."
+USER_QUERY = "Estrai le seguenti informazioni chiave sul richiedente e il suo nucleo familiare:"
+
 
 # --- Utility Functions ---
-
 def convert_file_to_base64(file_obj):
-    """Reads the uploaded Streamlit file and returns its base64 encoded string."""
     file_obj.seek(0)
     file_bytes = file_obj.read()
-    return base64.b64encode(file_bytes).decode('utf-8')
+    return base64.b64encode(file_bytes).decode("utf-8")
+
 
 def extract_data_with_gemini(base64_data, mime_type, api_key):
-    """
-    Simulates an SDK-style call to the Gemini API using requests for structured 
-    multimodal extraction. Includes exponential backoff for resilience.
-    """
     max_retries = 5
     initial_delay = 1
-    
+
     API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={api_key}"
 
     payload = {
@@ -61,12 +60,7 @@ def extract_data_with_gemini(base64_data, mime_type, api_key):
                 "role": "user",
                 "parts": [
                     {"text": USER_QUERY},
-                    {
-                        "inlineData": {
-                            "mimeType": mime_type,
-                            "data": base64_data
-                        }
-                    }
+                    {"inlineData": {"mimeType": mime_type, "data": base64_data}}
                 ]
             }
         ],
@@ -79,169 +73,113 @@ def extract_data_with_gemini(base64_data, mime_type, api_key):
 
     for attempt in range(max_retries):
         try:
-            # Perform the API request
-            response = requests.post(
-                API_URL, 
-                headers={'Content-Type': 'application/json'}, 
-                data=json.dumps(payload)
-            )
-            response.raise_for_status()
-            
-            # Successful response, parse JSON text from the model's response
-            result = response.json()
-            # Navigate the JSON structure to find the generated JSON string
-            json_text = result['candidates'][0]['content']['parts'][0]['text']
-            
-            # Parse the structured JSON output
+            resp = requests.post(API_URL, headers={"Content-Type": "application/json"}, data=json.dumps(payload))
+            resp.raise_for_status()
+            result = resp.json()
+            json_text = result["candidates"][0]["content"]["parts"][0]["text"]
             return json.loads(json_text)
-            
-        except requests.exceptions.RequestException as e:
-            # Handle specific API errors, including connection issues and rate limits
+
+        except Exception as e:
             if attempt < max_retries - 1:
-                delay = initial_delay * (2 ** attempt)
-                time.sleep(delay)
+                time.sleep(initial_delay * (2 ** attempt))
             else:
-                # Log final error but return None for UI handling
-                st.error(f"Errore API definitivo: Impossibile estrarre i dati. {e}")
+                st.error(f"Errore API definitivo: {e}")
                 return None
-        except (KeyError, json.JSONDecodeError) as e:
-            # Handle model output structure errors
-            st.error(f"Errore nella decodifica o struttura della risposta dell'API: {e}")
-            return None
     return None
+
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Document Data Extractor", layout="wide")
 
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background-color: #f0f2f6;
-    }
-    .main-header {
-        color: #1f78b4;
-        font-weight: 600;
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    .stTable {
-        border-radius: 0.5rem;
-        overflow: hidden;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# Initialize session state
+if "df" not in st.session_state:
+    st.session_state.df = None
 
 st.markdown('<h1 class="main-header">📄 Estrazione dati da Documenti</h1>', unsafe_allow_html=True)
-st.write("Carica uno o più documenti (PDF, PNG, JPG) di autocertificazione per estrarre informazioni strutturate.")
+st.write("Carica uno o più documenti PDF/JPG/PNG per estrarre informazioni strutturate.")
 
-# --- API Key Input in Sidebar ---
+# Sidebar API Key
 with st.sidebar:
     st.title("Configurazione API")
-    user_api_key = st.text_input(
-        "Chiave API:",
-        type="password",
-        help="La chiave API è necessaria per l'autenticazione. Lasciare vuoto se si esegue in un ambiente Canvas (che la fornisce automaticamente)."
-    )
-    final_api_key = user_api_key or "" # Use the user input, or empty string for Canvas environment
+    api_key = st.text_input("Chiave API:", type="password")
+    final_api_key = api_key or ""
 
-# --- File Uploader ---
+# Uploader
 uploaded_files = st.file_uploader(
-    "Carica uno o più file (PDF o Immagini)", 
-    type=["pdf", "png", "jpg", "jpeg"], 
-    accept_multiple_files=True, 
-    key="file_uploader"
+    "Carica uno o più file",
+    type=["pdf", "png", "jpg", "jpeg"],
+    accept_multiple_files=True
 )
 
-if uploaded_files:
-    
-    # Check if a key is available (either provided by user or expected from environment)
+# --- RUN EXTRACTION ONLY IF NEW FILES ARE UPLOADED AND DF IS EMPTY ---
+if uploaded_files and st.session_state.df is None:
+
     if not final_api_key:
-          st.warning("⚠️ Chiave API Gemini mancante. L'estrazione procederà solo se l'ambiente di esecuzione la fornisce automaticamente.")
-    
+        st.warning("⚠️ Nessuna API key fornita.")
+
     all_extracted_data = []
-    
-    with st.spinner(f"Analisi di {len(uploaded_files)} documenti in corso con AI..."):
-        
-        # Itera su ciascun file caricato
-        for i, uploaded_file in enumerate(uploaded_files):
-            st.markdown(f"**Analisi del file {i+1}/{len(uploaded_files)}: {uploaded_file.name}**")
-            
-            try:
-                # 1. Convert file to Base64
-                base64_data = convert_file_to_base64(uploaded_file)
-                
-                # Determine mime type
-                mime_type = uploaded_file.type
-                # Fallback if Streamlit doesn't guess it
-                if not mime_type:
-                    if uploaded_file.name.lower().endswith(".pdf"):
-                        mime_type = "application/pdf"
-                    elif uploaded_file.name.lower().endswith((".png")):
-                        mime_type = "image/png"
-                    elif uploaded_file.name.lower().endswith((".jpg", ".jpeg")):
-                        mime_type = "image/jpeg"
-                    else:
-                        mime_type = "application/octet-stream" # Default
 
-                # 2. Call the extraction function, passing the API key and mime type
-                extracted_info = extract_data_with_gemini(base64_data, mime_type, final_api_key)
+    with st.spinner(f"Analisi di {len(uploaded_files)} documenti in corso..."):
+        for file in uploaded_files:
 
-                if extracted_info:
-                    # 3. Aggiungi il nome del file ai dati estratti
-                    extracted_info['Nome File'] = uploaded_file.name
-                    all_extracted_data.append(extracted_info)
-                    st.success(f"Dati estratti con successo da {uploaded_file.name}.")
-                else:
-                    st.error(f"Impossibile estrarre le informazioni da {uploaded_file.name}.")
-                    
-            except Exception as e:
-                st.error(f"Si è verificato un errore inaspettato durante l'analisi di {uploaded_file.name}: {e}")
+            base64_data = convert_file_to_base64(file)
+            mime_type = file.type or "application/octet-stream"
 
-    # Visualizzazione e download dei risultati combinati
+            extracted = extract_data_with_gemini(base64_data, mime_type, final_api_key)
+
+            if extracted:
+                extracted["Nome File"] = file.name
+                all_extracted_data.append(extracted)
+                st.success(f"Dati estratti da {file.name}")
+            else:
+                st.error(f"Impossibile estrarre dati da {file.name}")
+
     if all_extracted_data:
-        st.subheader("✅ Risultati estratti (Tabella combinata)")
-        
-        # Crea il DataFrame combinato
         df = pd.DataFrame(all_extracted_data)
-        
-        # Colonne da visualizzare e loro nomi utente
+
+        # Reorder and rename columns
         display_columns = [
-            'Nome File', 'nome', 'cognome', 'statoCivile', 
-            'coniugeACarico', 'invaliditaConiuge', 
-            'numeroFigliCarico', 'numeroFigliInvalidi', 
-            'numeroAltriFamiliariACarico'
+            "Nome File", "nome", "cognome", "statoCivile",
+            "coniugeACarico", "invaliditaConiuge",
+            "numeroFigliCarico", "numeroFigliInvalidi",
+            "numeroAltriFamiliariACarico"
         ]
-        
-        # Gestione colonne mancanti (per sicurezza)
-        for col in display_columns:
-            if col not in df.columns:
-                df[col] = None 
-                
+
+        for c in display_columns:
+            if c not in df.columns:
+                df[c] = None
+
         df = df[display_columns]
 
         df.columns = [
             "Nome File", "Nome", "Cognome", "Stato Civile",
-            "Coniuge a Carico", "Invalidità Coniuge", 
-            "N. Figli a Carico", "N. Figli Invalidi", 
-            "N. Altri Familiari a Carico", "Info Figli Invalidi"
+            "Coniuge a Carico", "Invalidità Coniuge",
+            "N. Figli a Carico", "N. Figli Invalidi",
+            "N. Altri Familiari a Carico"
         ]
-        
-        st.table(df)
 
-        # Download CSV
-        csv_buffer = io.StringIO()
-        df.to_csv(csv_buffer, index=False, sep=';', encoding='utf-8')
+        st.session_state.df = df
+    else:
+        st.warning("Nessun dato estratto.")
 
-        st.download_button(
-            label="⬇️ Scarica CSV Combinato",
-            data=csv_buffer.getvalue(),
-            file_name="dati_estratti_gemini_combinati.csv",
-            mime="text/csv"
-        )
+
+# --- IF DF EXISTS, SHOW TABLE + DOWNLOAD WITHOUT RERUN ---
+if st.session_state.df is not None:
+
+    df = st.session_state.df
+    st.subheader("📊 Risultati estratti")
+    st.table(df)
+
+    # CSV download
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, sep=";", index=False, encoding="utf-8")
+
+    st.download_button(
+        label="⬇️ Scarica CSV",
+        data=csv_buffer.getvalue(),
+        file_name="dati_estratti.csv",
+        mime="text/csv"
+    )
 
         # # --- NEW: Download Excel ---
         # excel_buffer = io.BytesIO()
@@ -256,8 +194,5 @@ if uploaded_files:
         #     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         # )
 
-    else:
-        st.warning("Nessun dato è stato estratto con successo.")
-
-
-st.info("Nota: Questa app utilizza AI per l'analisi multimodale di documenti (PDF e immagini).")
+# --- Reset button ---
+st.button("🔄 Reset", on_click=lambda: st.session_state.update({"df": None}))
