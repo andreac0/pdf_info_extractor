@@ -5,6 +5,7 @@ import requests
 import time
 import pandas as pd
 import io
+import xlsxwriter
 
 # --- Configuration (Base Definitions) ---
 # Utilizziamo il nome del modello stabile 'gemini-2.5-flash'.
