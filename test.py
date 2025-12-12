@@ -5,7 +5,6 @@ import requests
 import time
 import pandas as pd
 import io
-import xlsxwriter
 
 # --- Configuration ---
 MODEL_NAME = "gemini-2.5-flash"
