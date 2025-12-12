@@ -16,18 +16,25 @@ EXTRACTION_SCHEMA = {
     "properties": {
         "nome": {"type": "STRING", "description": "Nome dell'individuo. Se non trovato, usare una stringa vuota."},
         "cognome": {"type": "STRING", "description": "Cognome dell'individuo. Se non trovato, usare una stringa vuota."},
-        # "dataNascita": {"type": "STRING", "description": "Data di nascita nel formato GG/MM/AAAA. Se non trovata, usare una stringa vuota."},
-        # "nomeConiuge": {"type": "STRING", "description": "Nome o Cognome del coniuge/partner. Se non trovato, usare una stringa vuota."},
+        "statoCivile": {"type": "STRING", "description": "Stato civile: 'coniugato', 'celibe', 'nubile', 'separato', 'divorziato', 'vedovo', o stringa vuota se non trovato."},
+        
+        # Familiari / Coniuge
+        "coniugeACarico": {"type": "BOOLEAN", "description": "True se il coniuge/partner è esplicitamente dichiarato come fiscalmente a carico, altrimenti False."},
         "invaliditaConiuge": {"type": "BOOLEAN", "description": "True se viene esplicitamente dichiarata l'invalidità o lo stato di invalido del coniuge (e.g., 'invalido permanente'), altrimenti False."},
+        
+        # Figli
         "numeroFigliCarico": {"type": "INTEGER", "description": "Il numero totale di figli a carico dichiarati. Se non specificato o trovato, usare 0."},
-        "invaliditaFigli": {"type": "BOOLEAN", "description": "True se viene dichiarato che uno o più figli sono invalidi."},
+        "numeroFigliInvalidi": {"type": "INTEGER", "description": "Il numero di figli a carico che sono dichiarati invalidi. Se non specificato o trovato, usare 0."},
+        
+        # Altri familiari
+        "numeroAltriFamiliariACarico": {"type": "INTEGER", "description": "Il numero totale di altri familiari a carico (diversi da coniuge e figli). Se non specificato o trovato, usare 0."},
         "infoFigliInvalidi": {"type": "STRING", "description": "Nomi e dettagli dei figli dichiarati invalidi. Se nessuno, stringa vuota."}
     },
-    "propertyOrdering": ["nome", "cognome",  "invaliditaConiuge", "numeroFigliCarico", "invaliditaFigli", "infoFigliInvalidi"]
+    "propertyOrdering": ["nome", "cognome", "statoCivile", "coniugeACarico", "invaliditaConiuge", "numeroFigliCarico", "numeroFigliInvalidi", "numeroAltriFamiliariACarico", "infoFigliInvalidi"]
 }
 
 # --- Prompts ---
-SYSTEM_PROMPT = "Sei un sistema di estrazione dati specializzato in documenti di autocertificazione. Analizza il documento fornito (PDF o immagine) e compila scrupolosamente tutti i campi richiesti nel formato JSON specificato."
+SYSTEM_PROMPT = "Sei un sistema di estrazione dati specializzato in documenti di autocertificazione. Analizza il documento fornito (PDF o immagine) e compila scrupolosamente tutti i campi richiesti nel formato JSON specificato. Fai la tua migliore ipotesi per lo stato civile in base al contesto o lascia vuoto se non chiaro."
 USER_QUERY = "Estrai le seguenti informazioni chiave sul richiedente e il suo nucleo familiare, indipendentemente dal fatto che provengano da testo normale, campi modulo o immagini:"
 
 # --- Utility Functions ---
@@ -42,8 +49,6 @@ def extract_data_with_gemini(base64_data, mime_type, api_key):
     """
     Simulates an SDK-style call to the Gemini API using requests for structured 
     multimodal extraction. Includes exponential backoff for resilience.
-    
-    The API key is now passed as an argument.
     """
     max_retries = 5
     initial_delay = 1
@@ -155,11 +160,11 @@ if uploaded_files:
     
     # Check if a key is available (either provided by user or expected from environment)
     if not final_api_key:
-         st.warning("⚠️ Chiave API Gemini mancante. L'estrazione procederà solo se l'ambiente di esecuzione la fornisce automaticamente.")
+          st.warning("⚠️ Chiave API Gemini mancante. L'estrazione procederà solo se l'ambiente di esecuzione la fornisce automaticamente.")
     
     all_extracted_data = []
     
-    with st.spinner(f"Analisi di {len(uploaded_files)} PDF in corso con AI..."):
+    with st.spinner(f"Analisi di {len(uploaded_files)} documenti in corso con AI..."):
         
         # Itera su ciascun file caricato
         for i, uploaded_file in enumerate(uploaded_files):
@@ -171,7 +176,7 @@ if uploaded_files:
                 
                 # Determine mime type
                 mime_type = uploaded_file.type
-                # Fallback if Streamlit doesn't guess it (e.g. sometimes it might be None related, though usually reliable)
+                # Fallback if Streamlit doesn't guess it
                 if not mime_type:
                     if uploaded_file.name.lower().endswith(".pdf"):
                         mime_type = "application/pdf"
@@ -203,20 +208,26 @@ if uploaded_files:
         # Crea il DataFrame combinato
         df = pd.DataFrame(all_extracted_data)
         
-        # Riordina e rinomina le colonne per la visualizzazione
-        # Nota: Rimosse colonne commentate nello schema per evitare errori
-        display_columns = ['Nome File', 'nome', 'cognome', 'invaliditaConiuge', 'numeroFigliCarico', 'invaliditaFigli', 'infoFigliInvalidi']
+        # Colonne da visualizzare e loro nomi utente
+        display_columns = [
+            'Nome File', 'nome', 'cognome', 'statoCivile', 
+            'coniugeACarico', 'invaliditaConiuge', 
+            'numeroFigliCarico', 'numeroFigliInvalidi', 
+            'numeroAltriFamiliariACarico', 'infoFigliInvalidi'
+        ]
         
-        # Gestione colonne mancanti se il modello non le restituisce (sicurezza)
+        # Gestione colonne mancanti (per sicurezza)
         for col in display_columns:
             if col not in df.columns:
-                df[col] = None # o valore default appropriato
+                df[col] = None 
                 
         df = df[display_columns]
 
         df.columns = [
-            "Nome File", "Nome", "Cognome", 
-            "Invalidità Coniuge", "N. Figli a Carico", "Invalidità Figli", "Info Figli Invalidi"
+            "Nome File", "Nome", "Cognome", "Stato Civile",
+            "Coniuge a Carico", "Invalidità Coniuge", 
+            "N. Figli a Carico", "N. Figli Invalidi", 
+            "N. Altri Familiari a Carico", "Info Figli Invalidi"
         ]
         
         st.table(df)
