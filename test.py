@@ -7,7 +7,7 @@ import pandas as pd
 import io
 
 # --- Configuration ---
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3-flash-preview"
 
 EXTRACTION_SCHEMA = {
     "type": "OBJECT",
@@ -26,7 +26,6 @@ EXTRACTION_SCHEMA = {
         # Altri familiari
         "numeroAltriFamiliariACarico": {"type": "INTEGER", "description": "Il numero totale di altri familiari a carico (diversi da coniuge e figli). Se non specificato o trovato, usare 0."},
         "coniugeACarico": {"type": "BOOLEAN", "description": "True se tra gli 'altri familiari a carico' c'è il coniuge/marito/moglie, altrimenti False."},
-
     },
     "propertyOrdering": [
         "nome", "cognome", "statoCivile",
